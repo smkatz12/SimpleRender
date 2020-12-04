@@ -1,5 +1,6 @@
 using Statistics
 using Distributions
+using StaticArrays
 
 include("pendulum.jl")
 include("blurry_grid_world.jl")
