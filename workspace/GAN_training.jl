@@ -48,7 +48,7 @@ function Discriminator(hp::HyperParameters)
                   x-> leakyrelu.(x, 0.2f0),
                   x-> reshape(x, :, size(x, 4)),
                   Dropout(0.4),
-                  Dense(1920, 1)) |> hp.device
+                  Dense(1920, 1, sigmoid)) |> hp.device
     return Discriminator(d_labels, d_common)
 end
 
@@ -76,11 +76,12 @@ function Generator(hp::HyperParameters)
             x-> leakyrelu.(x, 0.2f0), 
             x-> reshape(x, 3, 5, hp.latent_channels, size(x, 2))) |> hp.device
     g_common = Chain(ConvTranspose((3, 3), hp.latent_channels+1=>hp.conv_1_channels; stride=2, pad=1),
-            BatchNorm(hp.latent_channels, leakyrelu),
+            BatchNorm(hp.conv_1_channels, leakyrelu),
             Dropout(0.25),
             ConvTranspose((4, 4), hp.conv_1_channels=>hp.conv_2_channels; stride=2, pad=1),
-            BatchNorm(64, leakyrelu),
-            Conv((7, 7), hp.conv_2_channels=>1, tanh; stride=1, pad=3)) |> hp.device
+            BatchNorm(hp.conv_2_channels, leakyrelu),
+            ConvTranspose((7, 7), hp.conv_2_channels=>1, sigmoid; stride=1, pad=3),
+            x -> 2.f0 .* x .- 1.f0) |> hp.device
     return Generator(g_labels, g_latent, g_common)
 end
 
@@ -114,6 +115,7 @@ function train_generator!(G, D, nx, ny, optG)
 end
 
 ############## Util #################################
+
 function to_image(G, fixed_noise, fixed_labels, hp)
     fake_images = cpu.(G.(fixed_noise, fixed_labels))
     image_array = permutedims(dropdims(reduce(vcat, reduce.(hcat, partition(fake_images, hp.output_y))); dims=(3, 4)), (2, 1))
@@ -129,6 +131,7 @@ function rand_input(hp)
 end
 
 ############## Training #################################
+
 function train(fn ;hp = HyperParameters(), G = Generator(hp), D = Discriminator(hp), optG = ADAM(hp.αᴳ, (0.5, 0.99)), optD = ADAM(hp.αᴰ, (0.5, 0.99)))
     # Load MNIST dataset
     res = BSON.load(fn)
@@ -155,5 +158,10 @@ function train(fn ;hp = HyperParameters(), G = Generator(hp), D = Discriminator(
 	return G
 end
 
-fn = "/scratch/smkatz/NASA_ULI/pendulum_GAN_data.bson"
-G_conv = train(fn)
+hp = HyperParameters(latent_dim = 2, verbose_freq = 100, 
+                        latent_channels = 64,
+                        conv_1_channels = 64,
+                        conv_2_channels = 32)
+
+fn = "/scratch/smkatz/NASA_ULI/pendulum_GAN_data_norm.bson"
+G_conv = train(fn, hp = hp)
